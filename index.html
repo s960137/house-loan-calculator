@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>房貸試算教學工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* 手機優化：防止 iOS 點擊輸入框時自動放大 */
+        input, select { font-size: 16px !important; }
+        
+        /* 隱藏數字輸入框的上下箭頭 (修正警告：加入標準 appearance 屬性) */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            appearance: none; /* 新增這行 */
+            margin: 0;
+        }
+        
+        input[type=number] {
+            -moz-appearance: textfield;
+            appearance: textfield; /* 新增這行 */
+        }
+        
+        body { -webkit-tap-highlight-color: transparent; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans pb-10">
+
+    <div class="max-w-3xl mx-auto px-4 py-6">
+        <header class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-900">🏠 房貸試算互動工具</h1>
+            <p class="text-sm text-gray-500 mt-1">輸入房價，觀察本金與利息的變化</p>
+        </header>
+
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
+            <h2 class="text-lg font-semibold mb-4 text-blue-800 border-b pb-2">輸入條件</h2>
+            
+            <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <label class="text-sm font-medium text-gray-700">房屋總價 (萬元)</label>
+                    <input type="number" inputmode="decimal" id="housePrice" value="2000" class="w-32 text-right p-2 border rounded bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" oninput="updateLoanAmount()">
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <label class="text-sm font-medium text-gray-700">貸款成數 (%)</label>
+                    <div class="flex items-center gap-2">
+                        <span id="loanAmountHint" class="text-xs text-gray-400">貸 1600 萬</span>
+                        <input type="number" inputmode="decimal" id="loanPercent" value="80" class="w-20 text-right p-2 border rounded bg-gray-50 focus:bg-white outline-none" oninput="updateLoanAmount()">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">年限 (年)</label>
+                        <input type="number" inputmode="numeric" id="years" value="30" class="w-full p-2 border rounded bg-gray-50 text-center outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">年利率 (%)</label>
+                        <input type="number" inputmode="decimal" id="rate" value="2.185" step="0.001" class="w-full p-2 border rounded bg-gray-50 text-center outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">寬限期 (只繳息)</label>
+                    <select id="gracePeriod" class="w-full p-2 border rounded bg-gray-50 outline-none">
+                        <option value="0">無寬限期</option>
+                        <option value="1">1 年</option>
+                        <option value="2">2 年</option>
+                        <option value="3">3 年</option>
+                        <option value="5">5 年</option>
+                    </select>
+                </div>
+
+                <button onclick="calculateAll()" class="w-full bg-blue-600 active:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition transform active:scale-95 mt-2">
+                    開始計算
+                </button>
+            </div>
+        </div>
+
+        <div id="resultSection" class="hidden space-y-6">
+            
+            <div class="flex bg-gray-200 p-1 rounded-lg">
+                <button id="tab1" onclick="switchTab('equal-payment')" class="flex-1 py-2 rounded-md text-sm font-medium bg-white text-blue-700 shadow-sm transition">本息平均攤還</button>
+                <button id="tab2" onclick="switchTab('equal-principal')" class="flex-1 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition">本金平均攤還</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 col-span-2 text-center">
+                    <p class="text-xs text-blue-600 mb-1">首月應繳金額</p>
+                    <p class="text-3xl font-bold text-blue-900" id="resultMonthly">0</p>
+                    <p class="text-xs text-orange-600 mt-1 h-4" id="graceNote"></p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border border-gray-100 text-center">
+                    <p class="text-xs text-gray-500">總利息</p>
+                    <p class="text-lg font-bold text-gray-800" id="resultInterest">0</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border border-gray-100 text-center">
+                    <p class="text-xs text-gray-500">總花費 (本+利)</p>
+                    <p class="text-lg font-bold text-gray-800" id="resultTotal">0</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl border border-gray-200">
+                <h3 class="text-sm font-bold text-gray-700 mb-3 text-center">每月繳款變化圖</h3>
+                <div class="h-48 relative">
+                    <canvas id="paymentChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div class="bg-gray-50 px-4 py-2 text-xs text-gray-500 font-bold border-b">還款明細 (前 5 年預覽)</div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-right">
+                        <thead class="text-xs text-gray-400 bg-gray-50 border-b">
+                            <tr>
+                                <th class="px-3 py-2 text-left">期數</th>
+                                <th class="px-3 py-2">繳款總額</th>
+                                <th class="px-3 py-2">本金</th>
+                                <th class="px-3 py-2">利息</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detailTableBody" class="divide-y divide-gray-100">
+                            </tbody>
+                    </table>
+                </div>
+                <div class="p-2 text-center text-xs text-gray-400 bg-gray-50">僅顯示部分資料以節省手機資源</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+        let currentMethod = 'equal-payment';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateLoanAmount();
+        });
+
+        function updateLoanAmount() {
+            const price = parseFloat(document.getElementById('housePrice').value) || 0;
+            const percent = parseFloat(document.getElementById('loanPercent').value) || 0;
+            const loan = Math.round(price * (percent / 100));
+            document.getElementById('loanAmountHint').innerText = `貸 ${loan} 萬`;
+        }
+
+        function switchTab(method) {
+            currentMethod = method;
+            const btn1 = document.getElementById('tab1');
+            const btn2 = document.getElementById('tab2');
+            
+            if (method === 'equal-payment') {
+                btn1.className = "flex-1 py-2 rounded-md text-sm font-medium bg-white text-blue-700 shadow-sm transition";
+                btn2.className = "flex-1 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition";
+            } else {
+                btn1.className = "flex-1 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition";
+                btn2.className = "flex-1 py-2 rounded-md text-sm font-medium bg-white text-blue-700 shadow-sm transition";
+            }
+            calculateAll();
+        }
+
+        function calculateAll() {
+            document.getElementById('resultSection').classList.remove('hidden');
+            
+            const price = parseFloat(document.getElementById('housePrice').value) || 0;
+            const percent = parseFloat(document.getElementById('loanPercent').value) || 0;
+            const loanAmount = Math.round(price * (percent / 100)) * 10000;
+            
+            const annualRate = parseFloat(document.getElementById('rate').value) / 100;
+            const years = parseInt(document.getElementById('years').value);
+            const graceYears = parseInt(document.getElementById('gracePeriod').value);
+            
+            const monthlyRate = annualRate / 12;
+            const totalMonths = years * 12;
+            const graceMonths = graceYears * 12;
+            const repayMonths = totalMonths - graceMonths;
+
+            let schedule = [];
+            let totalInterest = 0;
+            let balance = loanAmount;
+
+            for (let i = 1; i <= totalMonths; i++) {
+                let payPrincipal = 0;
+                let payInterest = balance * monthlyRate;
+                let payTotal = 0;
+
+                if (i <= graceMonths) {
+                    payPrincipal = 0;
+                    payTotal = payInterest;
+                } else {
+                    if (currentMethod === 'equal-payment') {
+                        const x = Math.pow(1 + monthlyRate, repayMonths);
+                        const monthlyPayment = (loanAmount * monthlyRate * x) / (x - 1);
+                        payTotal = monthlyPayment;
+                        payPrincipal = payTotal - payInterest;
+                    } else {
+                        payPrincipal = loanAmount / repayMonths;
+                        payTotal = payPrincipal + payInterest;
+                    }
+                }
+
+                if (balance - payPrincipal < 1 && i === totalMonths) payPrincipal = balance;
+                balance -= payPrincipal;
+                if (balance < 0) balance = 0;
+                totalInterest += payInterest;
+
+                schedule.push({ period: i, total: payTotal, principal: payPrincipal, interest: payInterest });
+            }
+
+            renderResults(schedule, totalInterest, loanAmount, graceMonths);
+            renderChart(schedule);
+            
+            // 手機上平滑滾動到結果
+            document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderResults(schedule, totalInterest, loanAmount, graceMonths) {
+            const first = schedule[0];
+            const afterGrace = schedule[graceMonths];
+
+            document.getElementById('resultMonthly').innerText = Math.round(first.total).toLocaleString();
+            document.getElementById('resultInterest').innerText = Math.round(totalInterest / 10000) + " 萬";
+            document.getElementById('resultTotal').innerText = Math.round((loanAmount + totalInterest) / 10000) + " 萬";
+
+            if (graceMonths > 0 && afterGrace) {
+                document.getElementById('graceNote').innerText = `寬限後 ${Math.round(afterGrace.total).toLocaleString()}`;
+            } else {
+                document.getElementById('graceNote').innerText = "";
+            }
+
+            // Mobile Table: Show first 60 months (5 years) only to prevent lag
+            const tbody = document.getElementById('detailTableBody');
+            tbody.innerHTML = schedule.slice(0, 60).map(row => `
+                <tr class="text-gray-700">
+                    <td class="px-3 py-2 text-left text-gray-500">${row.period}</td>
+                    <td class="px-3 py-2 font-bold">${Math.round(row.total).toLocaleString()}</td>
+                    <td class="px-3 py-2 text-blue-600 text-xs">${Math.round(row.principal).toLocaleString()}</td>
+                    <td class="px-3 py-2 text-orange-500 text-xs">${Math.round(row.interest).toLocaleString()}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderChart(schedule) {
+            const ctx = document.getElementById('paymentChart').getContext('2d');
+            // Reduce data points for mobile chart performance
+            const mobileSchedule = schedule.filter((_, i) => i % 6 === 0 || i === schedule.length - 1);
+            
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: mobileSchedule.map(s => s.period),
+                    datasets: [{
+                        label: '月付金',
+                        data: mobileSchedule.map(s => s.total),
+                        borderColor: '#2563EB',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false }, // Hide x axis labels to save space
+                        y: { ticks: { callback: v => Math.round(v/1000) + 'k' } }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
